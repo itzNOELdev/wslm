@@ -221,7 +221,7 @@ function Invoke-WslmRestore {
 
     Write-Host "Restoring $name from $($backup.FileName) ... (this can take a few minutes)" -ForegroundColor Cyan
 
-    Invoke-WslmWslExe -WslArgs $importArgs -Quiet
+    Invoke-WslmWslExe -WslArgs $importArgs -Quiet -Activity "Importing $name"
 
     Write-Host "Restored $name  ->  $installPath" -ForegroundColor Green
 

@@ -74,6 +74,8 @@ Numbers are assigned alphabetically by name, so they do not change when you chan
 
 Commands that take several targets check all of them before doing anything, so a typo never leaves a half-finished operation.
 
+Long-running operations (fetching the online list, exporting or importing a backup) show a small activity spinner.
+
 ## Usage
 
 ### Find

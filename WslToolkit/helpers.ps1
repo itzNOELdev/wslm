@@ -25,32 +25,134 @@ function Show-WslmCommandHelp {
     Write-Host "`nUsage: $Usage`n"
 }
 
+# True only when a live spinner can be drawn without corrupting output.
+function Test-WslmCanAnimate {
+    try {
+        return ($Host.Name -eq 'ConsoleHost' -and -not [Console]::IsOutputRedirected)
+    }
+    catch {
+        return $false
+    }
+}
+
+# Runs a native command in a background runspace so the foreground can show
+# an activity spinner. Returns the captured output and the exit code.
+# Falls back to a plain status line when the console cannot be animated.
+function Invoke-WslmNativeWithSpinner {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Activity,
+
+        [Parameter(Mandatory)]
+        [string[]]$Arguments
+    )
+
+    $animate = Test-WslmCanAnimate
+    $frames = @('|', '/', '-', '\')
+    $index = 0
+
+    $ps = [PowerShell]::Create()
+    $null = $ps.AddScript({
+        param($exe, $nativeArgs)
+        $output = & $exe @nativeArgs 2>&1
+        [pscustomobject]@{
+            Output   = @($output)
+            ExitCode = $LASTEXITCODE
+        }
+    }).AddArgument($global:WslmWslExePath).AddArgument($Arguments)
+
+    try {
+        $handle = $ps.BeginInvoke()
+
+        if ($animate) {
+            Write-Host ("`r{0} {1}" -f $frames[0], $Activity) -NoNewline -ForegroundColor DarkGray
+        }
+        else {
+            Write-Host "$Activity ..." -ForegroundColor DarkGray
+        }
+
+        while (-not $handle.IsCompleted) {
+            Start-Sleep -Milliseconds 120
+
+            if ($animate) {
+                $index = ($index + 1) % $frames.Count
+                Write-Host ("`r{0} {1}" -f $frames[$index], $Activity) -NoNewline -ForegroundColor DarkGray
+            }
+        }
+
+        $result = @($ps.EndInvoke($handle))[0]
+    }
+    finally {
+        if ($animate) {
+            # Erase the spinner line and leave the cursor at the start.
+            Write-Host ("`r{0}`r" -f (' ' * ($Activity.Length + 2))) -NoNewline
+        }
+
+        if ($ps) {
+            try {
+                if ($ps.InvocationStateInfo.State -eq 'Running') {
+                    $ps.Stop()
+                }
+            }
+            catch { }
+
+            $ps.Dispose()
+        }
+    }
+
+    return $result
+}
+
 function Invoke-WslmWslExe {
     param(
         [Parameter(Mandatory)]
         [string[]]$WslArgs,
 
         # Hide wsl.exe's own output; it is still included in any error.
-        [switch]$Quiet
+        [switch]$Quiet,
+
+        # Show an activity spinner while the command runs. The output is
+        # captured, so this is meant for silent commands (export/import).
+        [string]$Activity
     )
 
-    if ($Quiet) {
+    $captured = $false
+    $output = @()
+
+    if ($Activity) {
+        $result = Invoke-WslmNativeWithSpinner -Activity $Activity -Arguments $WslArgs
+        $output = @($result.Output)
+        $exitCode = [int]$result.ExitCode
+        $captured = $true
+    }
+    elseif ($Quiet) {
         $output = & $global:WslmWslExePath @WslArgs 2>&1
         $exitCode = $LASTEXITCODE
-
-        if ($exitCode -ne 0) {
-            $text = (@($output | ForEach-Object { ([string]$_ -replace "`0", '').Trim() }) -join ' ').Trim()
-            throw "WSL command failed with exit code $exitCode. $text".Trim()
-        }
-
-        return
+        $captured = $true
+    }
+    else {
+        & $global:WslmWslExePath @WslArgs
+        $exitCode = $LASTEXITCODE
     }
 
-    & $global:WslmWslExePath @WslArgs
-    $exitCode = $LASTEXITCODE
-
     if ($exitCode -ne 0) {
-        throw "WSL command failed with exit code $exitCode."
+        $message = "WSL command failed with exit code $exitCode."
+
+        if ($captured) {
+            $text = (@($output | ForEach-Object { ([string]$_ -replace "`0", '').Trim() }) -join ' ').Trim()
+
+            if ($text) {
+                $message = "$message $text"
+            }
+        }
+
+        throw $message.Trim()
+    }
+
+    if ($Activity -and -not $Quiet) {
+        foreach ($line in $output) {
+            Write-Host ([string]$line)
+        }
     }
 }
 
@@ -185,9 +287,14 @@ function Resolve-WslmDistro {
 # Distributions available for installation, as rows:
 # Family, Name, FriendlyName (parsed from 'wsl --list --online').
 function Get-WslmOnlineDistro {
-    $output = & $global:WslmWslExePath --list --online 2>&1
+    # The online list is a network call and can take a while.
+    $result = Invoke-WslmNativeWithSpinner `
+        -Activity 'Fetching available distributions' `
+        -Arguments @('--list', '--online')
 
-    if ($LASTEXITCODE -ne 0) {
+    $output = @($result.Output)
+
+    if ([int]$result.ExitCode -ne 0) {
         throw 'Unable to retrieve available distributions.'
     }
 
@@ -542,7 +649,7 @@ function Export-WslmBackup {
     }
 
     try {
-        Invoke-WslmWslExe -WslArgs $exportArgs -Quiet
+        Invoke-WslmWslExe -WslArgs $exportArgs -Quiet -Activity "Exporting $Name"
     }
     catch {
         # Do not leave a half-written backup behind.
