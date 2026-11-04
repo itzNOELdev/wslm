@@ -2,15 +2,15 @@ function Invoke-WslmStop {
     $tokens = @($args)
 
     if ($tokens -contains '--help') {
-        Show-WslHelp `
+        Show-WslmCommandHelp `
             -Command 'wslm stop' `
             -Usage 'wslm stop <Distro|#> [<Distro|#> ...] | wslm stop --all' `
-            -Description 'Stop one or more WSL distributions (by name or number from wslm list), or shut down all of WSL.'
+            -Description 'Stop one or more WSL 2 distributions (by name or number from wslm list), or shut down all of WSL.'
         return
     }
 
     if (-not $tokens.Count) {
-        throw 'Usage: wslm stop <Distro|#> [<Distro|#> ...] or wslm stop --all'
+        throw 'Usage: wslm stop <Distro|#> [<Distro|#> ...] | wslm stop --all'
     }
 
     if ($tokens -contains '--all') {
@@ -18,23 +18,23 @@ function Invoke-WslmStop {
             throw '--all cannot be combined with a distribution name.'
         }
 
-        Invoke-Wsl -WslArgs @('--shutdown') -Quiet
+        Invoke-WslmWslExe -WslArgs @('--shutdown') -Quiet
         Write-Host 'WSL has been shut down. All distributions are stopped.' -ForegroundColor Green
         return
     }
 
     foreach ($token in $tokens) {
-        if ($token.StartsWith('--')) {
+        if (([string]$token).StartsWith('--')) {
             throw "Unknown option: $token"
         }
     }
 
     # Resolve everything first, so a typo stops nothing.
-    $rows = @(Get-WslRows)
+    $rows = @(Get-WslmDistro)
     $targets = [System.Collections.Generic.List[string]]::new()
 
     foreach ($token in $tokens) {
-        $name = Resolve-WslDistro -Name $token -Rows $rows
+        $name = Resolve-WslmDistro -Name $token -Rows $rows
 
         if (-not $targets.Contains($name)) {
             $targets.Add($name)
@@ -52,7 +52,7 @@ function Invoke-WslmStop {
         }
 
         try {
-            Invoke-Wsl -WslArgs @('--terminate', $name) -Quiet
+            Invoke-WslmWslExe -WslArgs @('--terminate', $name) -Quiet
             Write-Host "Stopped $name" -ForegroundColor Green
         }
         catch {

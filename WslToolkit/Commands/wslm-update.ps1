@@ -5,7 +5,7 @@ function Get-WslmInfoLines {
         [string[]]$WslArgs
     )
 
-    $output = & $global:WslToolkitWslExe @WslArgs 2>&1
+    $output = & $global:WslmWslExePath @WslArgs 2>&1
 
     if ($LASTEXITCODE -ne 0) {
         throw "WSL command failed: wsl $($WslArgs -join ' ')"
@@ -28,14 +28,25 @@ function ConvertTo-WslmInfoRows {
         [string]$Section
     )
 
+    $rows = [System.Collections.Generic.List[object]]::new()
+    $notes = [System.Collections.Generic.List[string]]::new()
+
     foreach ($line in $Lines) {
         if ($line -match '^([^:]+):\s*(.*)$') {
-            [pscustomobject]@{
+            $rows.Add([pscustomobject]@{
                 Section = $Section
                 Setting = $Matches[1].Trim()
                 Value   = $Matches[2].Trim()
-            }
+            })
         }
+        else {
+            $notes.Add($line)
+        }
+    }
+
+    return [pscustomobject]@{
+        Rows  = $rows.ToArray()
+        Notes = $notes.ToArray()
     }
 }
 
@@ -58,7 +69,7 @@ function Invoke-WslmUpdate {
     $tokens = @($args)
 
     if ($tokens -contains '--help') {
-        Show-WslHelp `
+        Show-WslmCommandHelp `
             -Command 'wslm update' `
             -Usage 'wslm update [--status | --web-download] [--help]' `
             -Description 'Update WSL, or show its version and status.'
@@ -71,13 +82,22 @@ function Invoke-WslmUpdate {
 
     # --status: show everything in one table.
     if ($tokens -contains '--status') {
-        $statusLines  = @(Get-WslmInfoLines -WslArgs @('--status'))
+        $statusLines = @()
+
+        try {
+            $statusLines = @(Get-WslmInfoLines -WslArgs @('--status'))
+        }
+        catch {
+            Write-Warning "Could not read 'wsl --status': $_"
+        }
+
         $versionLines = @(Get-WslmInfoLines -WslArgs @('--version'))
 
-        $rows = @(
-            ConvertTo-WslmInfoRows -Lines $statusLines -Section 'Status'
-            ConvertTo-WslmInfoRows -Lines $versionLines -Section 'Version'
-        )
+        $status = ConvertTo-WslmInfoRows -Lines $statusLines -Section 'Status'
+        $version = ConvertTo-WslmInfoRows -Lines $versionLines -Section 'Version'
+
+        $rows = @($status.Rows) + @($version.Rows)
+        $notes = @($status.Notes) + @($version.Notes)
 
         if (-not $rows.Count) {
             # Unexpected format: show the raw text instead of nothing.
@@ -88,10 +108,18 @@ function Invoke-WslmUpdate {
 
         Write-Host ''
 
-        Write-WslTable `
+        Write-WslmTable `
             -Rows $rows `
             -Columns @('Section', 'Setting', 'Value') `
             -GroupColumn 'Section'
+
+        if ($notes.Count) {
+            Write-Host "`nNotes:" -ForegroundColor DarkGray
+
+            foreach ($note in $notes) {
+                Write-Host "  $note" -ForegroundColor DarkGray
+            }
+        }
 
         Write-Host ''
         return
@@ -108,7 +136,7 @@ function Invoke-WslmUpdate {
 
     $before = Get-WslmWslVersion
 
-    Invoke-Wsl -WslArgs $updateArgs
+    Invoke-WslmWslExe -WslArgs $updateArgs
 
     $after = Get-WslmWslVersion
 

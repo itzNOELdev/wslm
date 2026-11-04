@@ -3,9 +3,9 @@
 # Shared helper functions
 # ============================================================
 
-$global:WslToolkitWslExe = 'wsl.exe'
+$global:WslmWslExePath = 'wsl.exe'
 
-function Show-WslHelp {
+function Show-WslmCommandHelp {
     param(
         [Parameter(Mandatory)]
         [string]$Command,
@@ -25,7 +25,7 @@ function Show-WslHelp {
     Write-Host "`nUsage: $Usage`n"
 }
 
-function Invoke-Wsl {
+function Invoke-WslmWslExe {
     param(
         [Parameter(Mandatory)]
         [string[]]$WslArgs,
@@ -35,7 +35,7 @@ function Invoke-Wsl {
     )
 
     if ($Quiet) {
-        $output = & $global:WslToolkitWslExe @WslArgs 2>&1
+        $output = & $global:WslmWslExePath @WslArgs 2>&1
         $exitCode = $LASTEXITCODE
 
         if ($exitCode -ne 0) {
@@ -46,7 +46,7 @@ function Invoke-Wsl {
         return
     }
 
-    & $global:WslToolkitWslExe @WslArgs
+    & $global:WslmWslExePath @WslArgs
     $exitCode = $LASTEXITCODE
 
     if ($exitCode -ne 0) {
@@ -54,8 +54,8 @@ function Invoke-Wsl {
     }
 }
 
-function Get-WslRows {
-    $output = & $global:WslToolkitWslExe --list --verbose 2>&1
+function Get-WslmDistro {
+    $output = & $global:WslmWslExePath --list --verbose 2>&1
     $exitCode = $LASTEXITCODE
 
     if ($exitCode -ne 0) {
@@ -69,14 +69,19 @@ function Get-WslRows {
         $line = ([string]$entry -replace "`0", '').Trim()
 
         # [*] NAME STATE VERSION  - the header never matches because it
-        # does not end in a 1 or 2, so this works in any language.
-        if ($line -match '^(\*)?\s*(.+?)\s+(\S+)\s+([12])$') {
-            $parsed.Add([pscustomobject]@{
-                Default = [bool]$Matches[1]
-                Name    = $Matches[2].Trim()
-                Raw     = $Matches[3]
-                Version = [int]$Matches[4]
-            })
+        # does not end in a number, so this works in any language.
+        # Only WSL 2 and newer are supported; WSL 1 rows are ignored.
+        if ($line -match '^(\*)?\s*(.+?)\s+(\S+)\s+(\d+)$') {
+            $version = [int]$Matches[4]
+
+            if ($version -gt 1) {
+                $parsed.Add([pscustomobject]@{
+                    Default = [bool]$Matches[1]
+                    Name    = $Matches[2].Trim()
+                    Raw     = $Matches[3]
+                    Version = $version
+                })
+            }
         }
     }
 
@@ -90,7 +95,7 @@ function Get-WslRows {
         if ($state -notin @('Running', 'Stopped')) {
             if ($null -eq $runningNames) {
                 $runningNames = @(
-                    & $global:WslToolkitWslExe --list --running --quiet 2>&1 |
+                    & $global:WslmWslExePath --list --running --quiet 2>&1 |
                         ForEach-Object { ([string]$_ -replace "`0", '').Trim() }
                 )
             }
@@ -125,35 +130,25 @@ function Get-WslRows {
     )
 }
 
-function Get-WslNames {
-    return @(
-        Get-WslRows | ForEach-Object { $_.Name }
-    )
-}
-
-function Test-WslDistro {
+function Assert-WslmOptionOnce {
     param(
         [Parameter(Mandatory)]
-        [string]$Name
-    )
+        [hashtable]$Seen,
 
-    return (@(Get-WslNames) -contains $Name)
-}
-
-function Assert-WslDistro {
-    param(
         [Parameter(Mandatory)]
-        [string]$Name
+        [string]$Option
     )
 
-    if (-not (Test-WslDistro -Name $Name)) {
-        throw "Distribution '$Name' is not installed. Run wslm list to see installed distributions."
+    if ($Seen.ContainsKey($Option)) {
+        throw "Use $Option only once."
     }
+
+    $Seen[$Option] = $true
 }
 
 # Accepts a distribution name or its number from 'wslm list' and returns
 # the real distribution name. Pass -Rows to avoid asking WSL again.
-function Resolve-WslDistro {
+function Resolve-WslmDistro {
     param(
         [Parameter(Mandatory)]
         [string]$Name,
@@ -162,7 +157,7 @@ function Resolve-WslDistro {
     )
 
     if (-not $Rows) {
-        $Rows = @(Get-WslRows)
+        $Rows = @(Get-WslmDistro)
     }
 
     # A real name always wins (even if it looks like a number).
@@ -184,13 +179,13 @@ function Resolve-WslDistro {
         throw "No distribution is numbered $Name. Run wslm list to see the numbers."
     }
 
-    throw "Distribution '$Name' is not installed. Run wslm list to see installed distributions."
+    throw "Distribution '$Name' is not installed, or it is not WSL 2. Run wslm list to see supported distributions."
 }
 
 # Distributions available for installation, as rows:
 # Family, Name, FriendlyName (parsed from 'wsl --list --online').
-function Get-WslOnlineDistros {
-    $output = & $global:WslToolkitWslExe --list --online 2>&1
+function Get-WslmOnlineDistro {
+    $output = & $global:WslmWslExePath --list --online 2>&1
 
     if ($LASTEXITCODE -ne 0) {
         throw 'Unable to retrieve available distributions.'
@@ -242,7 +237,7 @@ function Get-WslOnlineDistros {
 # drawn between groups. -CellColor can colour individual cells.
 # ============================================================
 
-function Write-WslTable {
+function Write-WslmTable {
     param(
         [Parameter(Mandatory)]
         [object[]]$Rows,
@@ -360,7 +355,7 @@ function Write-WslTable {
 
 $global:WslmBackupDir = Join-Path $HOME 'WslBackups'
 
-function Get-WslBackupFolder {
+function Get-WslmBackupFolder {
     param([string]$Path)
 
     if ($Path) {
@@ -370,7 +365,7 @@ function Get-WslBackupFolder {
     return $global:WslmBackupDir
 }
 
-function Format-WslSize {
+function Format-WslmSize {
     param([double]$Bytes)
 
     $inv = [System.Globalization.CultureInfo]::InvariantCulture
@@ -381,17 +376,29 @@ function Format-WslSize {
     return ([math]::Max(1, [math]::Round($Bytes / 1KB))).ToString('N0', $inv) + ' KB'
 }
 
-# Names of installed distributions; empty (never an error) if there are none.
-function Get-WslInstalledNames {
+# Names of all installed distributions, including WSL 1. Used where the
+# version does not matter (backup source status, name collisions).
+# Empty (never an error) if there are none.
+function Get-WslmInstalledName {
     try {
-        return @(Get-WslRows | ForEach-Object { $_.Name })
+        $output = & $global:WslmWslExePath --list --quiet 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            return @()
+        }
+
+        return @(
+            $output |
+                ForEach-Object { ([string]$_ -replace "`0", '').Trim() } |
+                Where-Object { $_ }
+        )
     }
     catch {
         return @()
     }
 }
 
-function ConvertTo-WslBackup {
+function ConvertTo-WslmBackup {
     param(
         [Parameter(Mandatory)]
         [System.IO.FileInfo]$File,
@@ -414,7 +421,7 @@ function ConvertTo-WslBackup {
         Backed     = $File.LastWriteTime
         BackedText = $File.LastWriteTime.ToString('yyyy-MM-dd HH:mm')
         Bytes      = $File.Length
-        Size       = Format-WslSize $File.Length
+        Size       = Format-WslmSize $File.Length
         Source     = $source
         Format     = $File.Extension.TrimStart('.').ToLowerInvariant()
         FileName   = $File.Name
@@ -423,7 +430,7 @@ function ConvertTo-WslBackup {
 }
 
 # All backups in a folder, grouped by distro (newest first), numbered.
-function Get-WslBackups {
+function Get-WslmBackup {
     param(
         [Parameter(Mandatory)]
         [string]$Folder
@@ -433,11 +440,11 @@ function Get-WslBackups {
         return @()
     }
 
-    $installed = @(Get-WslInstalledNames)
+    $installed = @(Get-WslmInstalledName)
 
     $items = foreach ($file in Get-ChildItem -LiteralPath $Folder -File) {
         if ($file.Extension -in @('.tar', '.vhdx')) {
-            ConvertTo-WslBackup -File $file -Installed $installed
+            ConvertTo-WslmBackup -File $file -Installed $installed
         }
     }
 
@@ -455,7 +462,7 @@ function Get-WslBackups {
 
 # Accepts a number from 'wslm backup list', a file name in the backup
 # folder, or a path to any .tar/.vhdx file. Returns the backup object.
-function Resolve-WslBackup {
+function Resolve-WslmBackup {
     param(
         [Parameter(Mandatory)]
         [string]$Token,
@@ -488,7 +495,7 @@ function Resolve-WslBackup {
             throw "'$Token' is not a .tar or .vhdx backup file."
         }
 
-        return ConvertTo-WslBackup -File $file -Installed @(Get-WslInstalledNames)
+        return ConvertTo-WslmBackup -File $file -Installed @(Get-WslmInstalledName)
     }
 
     throw "Backup '$Token' was not found. Run wslm backup list to see available backups."
@@ -497,7 +504,7 @@ function Resolve-WslBackup {
 # Exports one distribution with 'wsl --export' and returns the new file.
 # A running distribution is stopped first (unless -Live) so the files are
 # not changing while they are copied.
-function Export-WslBackup {
+function Export-WslmBackup {
     param(
         [Parameter(Mandatory)]
         [string]$Name,
@@ -521,11 +528,11 @@ function Export-WslBackup {
         throw "A backup named '$(Split-Path $file -Leaf)' already exists. Try again in a minute."
     }
 
-    $row = Get-WslRows | Where-Object Name -eq $Name | Select-Object -First 1
+    $row = Get-WslmDistro | Where-Object Name -eq $Name | Select-Object -First 1
 
     if ($row -and $row.State -eq 'Running' -and -not $Live) {
         Write-Host "Stopping $Name for a consistent backup ..." -ForegroundColor DarkGray
-        Invoke-Wsl -WslArgs @('--terminate', $Name) -Quiet
+        Invoke-WslmWslExe -WslArgs @('--terminate', $Name) -Quiet
     }
 
     $exportArgs = @('--export', $Name, $file)
@@ -535,7 +542,7 @@ function Export-WslBackup {
     }
 
     try {
-        Invoke-Wsl -WslArgs $exportArgs -Quiet
+        Invoke-WslmWslExe -WslArgs $exportArgs -Quiet
     }
     catch {
         # Do not leave a half-written backup behind.
@@ -550,13 +557,13 @@ function Export-WslBackup {
 }
 
 # Shows the backup table (used by 'wslm backup list' and 'wslm restore list').
-function Show-WslBackupList {
+function Show-WslmBackupList {
     param(
         [Parameter(Mandatory)]
         [string]$Folder
     )
 
-    $backups = @(Get-WslBackups -Folder $Folder)
+    $backups = @(Get-WslmBackup -Folder $Folder)
 
     if (-not $backups.Count) {
         Write-Host "No backups found in $Folder"
@@ -565,7 +572,7 @@ function Show-WslBackupList {
 
     Write-Host ''
 
-    Write-WslTable `
+    Write-WslmTable `
         -Rows $backups `
         -Columns @('Number', 'Distro', 'BackedText', 'Size', 'Source') `
         -Headers @('#', 'Distro', 'Backed up', 'Size', 'Source distro') `
@@ -587,7 +594,7 @@ function Show-WslBackupList {
 
     $total = ($backups | Measure-Object -Property Bytes -Sum).Sum
 
-    Write-Host "`n$($backups.Count) backups, $(Format-WslSize $total) in $Folder`n" -ForegroundColor DarkGray
+    Write-Host "`n$($backups.Count) backups, $(Format-WslmSize $total) in $Folder`n" -ForegroundColor DarkGray
 }
 
 # ============================================================
@@ -600,7 +607,7 @@ $global:WslmCommands = [ordered]@{
     find    = @{ Handler = 'Invoke-WslmFind';    Description = 'Find distributions available for installation' }
     make    = @{ Handler = 'Invoke-WslmMake';    Description = 'Install a distribution' }
     list    = @{ Handler = 'Invoke-WslmList';    Description = 'List installed distributions' }
-    start   = @{ Handler = 'Invoke-WslmStart';   Description = 'Start a distribution' }
+    shell   = @{ Handler = 'Invoke-WslmShell';   Description = 'Open an interactive shell in a distribution' }
     stop    = @{ Handler = 'Invoke-WslmStop';    Description = 'Stop one or all distributions' }
     default = @{ Handler = 'Invoke-WslmDefault'; Description = 'Show or change the default distribution' }
     backup  = @{ Handler = 'Invoke-WslmBackup';  Description = 'Back up distributions (and list, delete, prune backups)' }

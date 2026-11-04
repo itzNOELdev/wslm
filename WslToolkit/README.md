@@ -16,7 +16,7 @@ wslm <command> --help
 | `wslm find` | Find distributions available for installation |
 | `wslm make` | Install a distribution |
 | `wslm list` | List installed distributions |
-| `wslm start` | Open a shell in a distribution, or start it in the background |
+| `wslm shell` | Open an interactive shell in a distribution |
 | `wslm stop` | Stop distributions |
 | `wslm default` | Show or change the default distribution |
 | `wslm backup` | Back up distributions; list, delete and prune backups |
@@ -49,7 +49,7 @@ WslToolkit/
     ├── wslm-find.ps1
     ├── wslm-make.ps1
     ├── wslm-list.ps1
-    ├── wslm-start.ps1
+    ├── wslm-shell.ps1
     ├── wslm-stop.ps1
     ├── wslm-default.ps1
     ├── wslm-backup.ps1
@@ -62,7 +62,7 @@ Each file in `Commands` defines one function, `Invoke-Wslm<Name>`, which `wslm` 
 
 ## Names or numbers
 
-`wslm list` numbers every distribution. Anywhere a distribution name is accepted, its number works too:
+`wslm list` numbers every supported (WSL 2+) distribution. Anywhere a distribution name is accepted, its number works too:
 
 ```powershell
 wslm list
@@ -112,18 +112,16 @@ wslm list --verbose
 └───┴──────────────┴─────────┴─────────┘
 ```
 
-`--verbose` adds the WSL version (1 or 2) column.
+`--verbose` adds the WSL version column.
 
-### Start
+### Shell
 
 ```powershell
-wslm start 2                       # open a shell
-wslm start Debian --user root      # open a shell as a specific user
-wslm start 1 2 --background        # start without a shell and keep running
-wslm start --all                   # start everything in the background
+wslm shell 2                       # open a shell
+wslm shell Debian --user root      # open a shell as a specific user
 ```
 
-Without `--background`, `start` opens an interactive shell. With `--background` (and with `--all`), the distribution is started without a shell and kept running by a hidden process inside it, because WSL stops a distribution shortly after its last process ends. Use `wslm stop` to end it.
+`shell` is interactive only and opens one distribution at a time. It cannot start distributions in the background; use `wsl` directly if you need that. Use `wslm stop` to stop a distribution.
 
 ### Stop
 
@@ -148,16 +146,17 @@ wslm default 1        # set the default
 wslm backup 2                      # back up one distribution
 wslm backup 1 2                    # several at once
 wslm backup --all
-wslm backup 2 --vhd                # save as a .vhdx disk image (WSL 2 only)
+wslm backup 2 --vhd                # save as a .vhdx disk image
 wslm backup 2 --live               # do not stop the distribution first
 wslm backup 2 --out D:\Backups     # use another folder
 
 wslm backup list
 wslm backup delete 3 [--force]
 wslm backup prune --keep 3 [--force]
+wslm backup -- list                # back up a distro named "list"
 ```
 
-Backups are made with `wsl --export` and saved as plain files in `$HOME\WslBackups` (change per command with `--out`). A running distribution is stopped first so its files are not changing during the export, unless you pass `--live`.
+Backups are made with `wsl --export` and saved as plain files in `$HOME\WslBackups` (change per command with `--out`, which works with every backup mode). A running distribution is stopped first so its files are not changing during the export, unless you pass `--live`. Use `--` before a distribution name that matches a mode word (`list`, `delete`, `prune`).
 
 File names follow `<Distro>_<yyyy-MM-dd>_<HHmm>.tar` (or `.vhdx`). Nothing else is stored: the distribution name comes from the file name, and the date and size come from the file.
 
@@ -184,9 +183,10 @@ wslm restore 3 --name Ubuntu-test   # restore as a copy
 wslm restore 3 --replace            # overwrite the existing distribution
 wslm restore 3 --path D:\WSL\Ubuntu # choose the install folder
 wslm restore list                   # same table as wslm backup list
+wslm restore -- list                # treat "list" as a backup token
 ```
 
-Restores with `wsl --import`. The default install folder is `$HOME\WSL\<Name>`. A backup can also be given as a file name or a path to any `.tar` / `.vhdx` file.
+Restores with `wsl --import`. The default install folder is `$HOME\WSL\<Name>`. A backup can also be given as a file name or a path to any `.tar` / `.vhdx` file. Use `--` before a backup token that matches `list`. `wslm restore list` accepts only `--out`.
 
 | Situation | What happens |
 |---|---|
@@ -205,7 +205,7 @@ wslm remove Debian --force
 wslm remove --all
 ```
 
-Permanently deletes distributions. One distribution asks for `YES`; several list their names first and ask for `YES`; `--all` asks for `REMOVE ALL`. `--force` skips the question. If one removal fails the rest still run, and the failures are reported at the end. **This cannot be undone. Use `wslm backup` first.**
+Permanently deletes WSL 2 distributions. One distribution asks for `YES`; several list their names first and ask for `YES`; `--all` asks for `REMOVE ALL`. `--force` skips the question. If one removal fails the rest still run, and the failures are reported at the end. **This cannot be undone. Use `wslm backup` first.**
 
 ### Update
 
@@ -219,6 +219,12 @@ After an update it reports the old and new WSL version (`WSL updated: 2.4.9 -> 2
 
 ## Requirements
 
-- Windows with WSL installed
+- Windows with WSL 2 or newer installed
 - PowerShell 7
 - Run PowerShell as Administrator only if a WSL operation asks for it
+
+WSL 1 distributions are not listed or managed by this toolkit. Use `wsl` directly for WSL 1.
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).

@@ -2,10 +2,10 @@ function Invoke-WslmList {
     $tokens = @($args)
 
     if ($tokens -contains '--help') {
-        Show-WslHelp `
+        Show-WslmCommandHelp `
             -Command 'wslm list' `
             -Usage 'wslm list [--running | --stopped] [--verbose] [--help]' `
-            -Description 'List installed WSL distributions. Numbers can be used instead of names, e.g. wslm stop 2.'
+            -Description 'List installed WSL 2 distributions. Numbers can be used instead of names, e.g. wslm stop 2.'
         return
     }
 
@@ -21,7 +21,7 @@ function Invoke-WslmList {
         throw 'Choose either --running or --stopped, not both.'
     }
 
-    $rows = @(Get-WslRows)
+    $rows = @(Get-WslmDistro)
 
     # Numbers come from the full list, so they stay the same when filtering.
     if ($tokens -contains '--running') {
@@ -59,7 +59,7 @@ function Invoke-WslmList {
 
     Write-Host ''
 
-    Write-WslTable `
+    Write-WslmTable `
         -Rows $view `
         -Columns $columns `
         -Headers $headers `

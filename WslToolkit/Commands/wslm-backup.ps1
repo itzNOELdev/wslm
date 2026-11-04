@@ -2,10 +2,10 @@ function Invoke-WslmBackup {
     $tokens = @($args)
 
     if ($tokens -contains '--help') {
-        Show-WslHelp `
+        Show-WslmCommandHelp `
             -Command 'wslm backup' `
-            -Usage 'wslm backup <Distro|#> [...] | --all [--vhd] [--live] [--out <folder>] | list | delete <#|file> [--force] | prune --keep <N> [--force]' `
-            -Description "Back up distributions with wsl --export into a backup folder (default: $global:WslmBackupDir). A running distribution is stopped first unless --live is given."
+            -Usage 'wslm backup <Distro|#> [...] | --all [--vhd] [--live] [--out <folder>] | list [--out <folder>] | delete <#|file> [--force] [--out <folder>] | prune --keep <N> [--force] [--out <folder>]' `
+            -Description "Back up WSL 2 distributions with wsl --export into a backup folder (default: $global:WslmBackupDir). A running distribution is stopped first unless --live is given. Use -- before a distro name that matches a mode word (list, delete, prune)."
         return
     }
 
@@ -15,14 +15,27 @@ function Invoke-WslmBackup {
     $live = $false
     $force = $false
     $keep = $null
+    $literal = $false
+    $seen = @{}
     $words = [System.Collections.Generic.List[string]]::new()
 
     for ($i = 0; $i -lt $tokens.Count; $i++) {
         $token = [string]$tokens[$i]
 
+        # Everything after '--' is positional, never an option or mode word.
+        if ($literal) {
+            $words.Add($token)
+            continue
+        }
+
+        if ($token -eq '--') {
+            $literal = $true
+            continue
+        }
+
         switch ($token) {
             '--out' {
-                if ($folderOverride) { throw 'Use --out only once.' }
+                Assert-WslmOptionOnce -Seen $seen -Option $token
 
                 if (($i + 1) -ge $tokens.Count -or ([string]$tokens[$i + 1]).StartsWith('--')) {
                     throw 'Provide a folder after --out.'
@@ -31,6 +44,8 @@ function Invoke-WslmBackup {
                 $folderOverride = [string]$tokens[++$i]
             }
             '--keep' {
+                Assert-WslmOptionOnce -Seen $seen -Option $token
+
                 if (($i + 1) -ge $tokens.Count) { throw 'Provide a number after --keep.' }
 
                 $parsed = 0
@@ -58,7 +73,7 @@ function Invoke-WslmBackup {
     $mode = 'create'
     $rest = @($words)
 
-    if ($words.Count -and $words[0] -in @('list', 'delete', 'prune')) {
+    if (-not $literal -and $words.Count -and $words[0] -in @('list', 'delete', 'prune')) {
         $mode = $words[0]
         $rest = @($words | Select-Object -Skip 1)
     }
@@ -81,25 +96,25 @@ function Invoke-WslmBackup {
         }
     }
 
-    $folder = Get-WslBackupFolder -Path $folderOverride
+    $folder = Get-WslmBackupFolder -Path $folderOverride
 
     # ---------------------------------------------------------- list
     if ($mode -eq 'list') {
         if ($rest.Count) { throw 'Usage: wslm backup list [--out <folder>]' }
 
-        Show-WslBackupList -Folder $folder
+        Show-WslmBackupList -Folder $folder
         return
     }
 
     # -------------------------------------------------------- delete
     if ($mode -eq 'delete') {
-        if (-not $rest.Count) { throw 'Usage: wslm backup delete <#|file> [...] [--force]' }
+        if (-not $rest.Count) { throw 'Usage: wslm backup delete <#|file> [...] [--force] [--out <folder>]' }
 
-        $backups = @(Get-WslBackups -Folder $folder)
+        $backups = @(Get-WslmBackup -Folder $folder)
         $targets = [System.Collections.Generic.List[object]]::new()
 
         foreach ($token in $rest) {
-            $backup = Resolve-WslBackup -Token $token -Backups $backups
+            $backup = Resolve-WslmBackup -Token $token -Backups $backups
 
             if (-not ($targets | Where-Object Path -eq $backup.Path)) {
                 $targets.Add($backup)
@@ -131,10 +146,10 @@ function Invoke-WslmBackup {
 
     # --------------------------------------------------------- prune
     if ($mode -eq 'prune') {
-        if ($rest.Count) { throw 'Usage: wslm backup prune --keep <N> [--force]' }
-        if ($null -eq $keep) { throw 'Usage: wslm backup prune --keep <N> [--force]' }
+        if ($rest.Count) { throw 'Usage: wslm backup prune --keep <N> [--force] [--out <folder>]' }
+        if ($null -eq $keep) { throw 'Usage: wslm backup prune --keep <N> [--force] [--out <folder>]' }
 
-        $backups = @(Get-WslBackups -Folder $folder | Where-Object Distro -ne '?')
+        $backups = @(Get-WslmBackup -Folder $folder | Where-Object Distro -ne '?')
 
         $doomed = @(
             $backups |
@@ -159,7 +174,7 @@ function Invoke-WslmBackup {
             Write-Host "  $($item.FileName)  ($($item.Size))"
         }
 
-        Write-Host "`nThis frees $(Format-WslSize $freed)."
+        Write-Host "`nThis frees $(Format-WslmSize $freed)."
 
         if (-not $force) {
             $answer = Read-Host "`nType YES to confirm"
@@ -179,13 +194,13 @@ function Invoke-WslmBackup {
     }
 
     # -------------------------------------------------------- create
-    $rows = @(Get-WslRows)
+    $rows = @(Get-WslmDistro)
 
     if ($all) {
         if ($rest.Count) { throw '--all cannot be combined with a distribution name.' }
 
         if (-not $rows.Count) {
-            Write-Host 'No distributions are installed.'
+            Write-Host 'No WSL 2 distributions are installed.'
             return
         }
 
@@ -200,7 +215,7 @@ function Invoke-WslmBackup {
         $resolved = [System.Collections.Generic.List[string]]::new()
 
         foreach ($token in $rest) {
-            $name = Resolve-WslDistro -Name $token -Rows $rows
+            $name = Resolve-WslmDistro -Name $token -Rows $rows
 
             if (-not $resolved.Contains($name)) {
                 $resolved.Add($name)
@@ -216,8 +231,8 @@ function Invoke-WslmBackup {
         Write-Host "Backing up $name ... (this can take a few minutes)" -ForegroundColor Cyan
 
         try {
-            $file = Export-WslBackup -Name $name -Folder $folder -Vhd:$vhd -Live:$live
-            Write-Host "Backed up $name  ->  $($file.FullName)  ($(Format-WslSize $file.Length))" -ForegroundColor Green
+            $file = Export-WslmBackup -Name $name -Folder $folder -Vhd:$vhd -Live:$live
+            Write-Host "Backed up $name  ->  $($file.FullName)  ($(Format-WslmSize $file.Length))" -ForegroundColor Green
         }
         catch {
             $failed++

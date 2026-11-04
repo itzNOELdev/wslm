@@ -2,10 +2,10 @@ function Invoke-WslmRemove {
     $tokens = @($args)
 
     if ($tokens -contains '--help') {
-        Show-WslHelp `
+        Show-WslmCommandHelp `
             -Command 'wslm remove' `
             -Usage 'wslm remove <Distro|#> [<Distro|#> ...] [--force] | wslm remove --all [--force]' `
-            -Description 'Unregister and permanently delete WSL distributions (by name or number from wslm list).'
+            -Description 'Unregister and permanently delete WSL 2 distributions (by name or number from wslm list).'
         return
     }
 
@@ -13,7 +13,7 @@ function Invoke-WslmRemove {
     $all = $tokens -contains '--all'
 
     foreach ($token in $tokens) {
-        if ($token.StartsWith('--') -and $token -notin @('--force', '--all')) {
+        if (([string]$token).StartsWith('--') -and $token -notin @('--force', '--all')) {
             throw "Unknown option: $token"
         }
     }
@@ -29,14 +29,14 @@ function Invoke-WslmRemove {
     }
 
     if (-not $all -and $names.Count -eq 0) {
-        throw 'Usage: wslm remove <Distro|#> [<Distro|#> ...] [--force] or wslm remove --all [--force]'
+        throw 'Usage: wslm remove <Distro|#> [<Distro|#> ...] [--force] | wslm remove --all [--force]'
     }
 
-    $rows = @(Get-WslRows)
+    $rows = @(Get-WslmDistro)
 
     if ($all) {
         if (-not $rows.Count) {
-            Write-Host 'No distributions are installed.'
+            Write-Host 'No WSL 2 distributions are installed.'
             return
         }
 
@@ -47,7 +47,7 @@ function Invoke-WslmRemove {
         $resolved = [System.Collections.Generic.List[string]]::new()
 
         foreach ($name in $names) {
-            $target = Resolve-WslDistro -Name $name -Rows $rows
+            $target = Resolve-WslmDistro -Name $name -Rows $rows
 
             if (-not $resolved.Contains($target)) {
                 $resolved.Add($target)
@@ -86,7 +86,7 @@ function Invoke-WslmRemove {
         Write-Host "Removing $target ..." -ForegroundColor Yellow
 
         try {
-            Invoke-Wsl -WslArgs @('--unregister', $target) -Quiet
+            Invoke-WslmWslExe -WslArgs @('--unregister', $target) -Quiet
             Write-Host "Removed $target" -ForegroundColor Green
         }
         catch {

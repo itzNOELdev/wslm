@@ -2,15 +2,15 @@ function Invoke-WslmMake {
     $tokens = @($args)
 
     if ($tokens -contains '--help') {
-        Show-WslHelp `
+        Show-WslmCommandHelp `
             -Command 'wslm make' `
             -Usage 'wslm make <Distro> [--no-launch] [--help]' `
-            -Description 'Install an available WSL distribution (see wslm find for names).'
+            -Description 'Install an available WSL 2 distribution (see wslm find for names).'
         return
     }
 
     foreach ($token in $tokens) {
-        if ($token.StartsWith('--') -and $token -ne '--no-launch') {
+        if (([string]$token).StartsWith('--') -and $token -ne '--no-launch') {
             throw "Unknown option: $token"
         }
     }
@@ -19,17 +19,17 @@ function Invoke-WslmMake {
     $names = @($tokens | Where-Object { $_ -ne '--no-launch' })
 
     if ($names.Count -ne 1) {
-        throw 'Usage: wslm make <Distro> [--no-launch]'
+        throw 'Usage: wslm make <Distro> [--no-launch] [--help]'
     }
 
-    $name = $names[0]
+    $name = [string]$names[0]
 
     # Check the name against the online list (and fix its capitalisation).
     # If the list cannot be fetched, try the install anyway.
     $available = @()
 
     try {
-        $available = @(Get-WslOnlineDistros)
+        $available = @(Get-WslmOnlineDistro)
     }
     catch {
         Write-Warning "Could not check the online list; trying the install anyway. ($_)"
@@ -64,12 +64,12 @@ function Invoke-WslmMake {
     $alreadyInstalled = $false
 
     try {
-        $alreadyInstalled = Test-WslDistro -Name $name
+        $alreadyInstalled = @(Get-WslmInstalledName) -contains $name
     }
     catch { }
 
     if ($alreadyInstalled) {
-        Write-Host "$name is already installed. Start it with: wslm start $name" -ForegroundColor DarkGray
+        Write-Host "$name is already installed. Open it with: wslm shell $name" -ForegroundColor DarkGray
         return
     }
 
@@ -81,10 +81,10 @@ function Invoke-WslmMake {
 
     Write-Host "Installing $name ..." -ForegroundColor Cyan
 
-    Invoke-Wsl -WslArgs $installArgs
+    Invoke-WslmWslExe -WslArgs $installArgs
 
     if ($noLaunch) {
-        Write-Host "`nInstalled $name. It has not been launched yet; start it with: wslm start $name" -ForegroundColor Green
+        Write-Host "`nInstalled $name. It has not been launched yet; open it with: wslm shell $name" -ForegroundColor Green
     }
     else {
         Write-Host "`nInstalled $name." -ForegroundColor Green

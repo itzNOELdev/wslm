@@ -2,7 +2,7 @@ function Invoke-WslmFind {
     $tokens = @($args)
 
     if ($tokens -contains '--help') {
-        Show-WslHelp `
+        Show-WslmCommandHelp `
             -Command 'wslm find' `
             -Usage 'wslm find [--name <text>] [--help]' `
             -Description 'Find distributions available for installation, grouped by family.'
@@ -10,25 +10,24 @@ function Invoke-WslmFind {
     }
 
     $filter = $null
+    $seen = @{}
 
     for ($i = 0; $i -lt $tokens.Count; $i++) {
         if ($tokens[$i] -eq '--name') {
-            if ($filter) {
-                throw 'Use --name only once.'
-            }
+            Assert-WslmOptionOnce -Seen $seen -Option '--name'
 
-            if (($i + 1) -ge $tokens.Count -or $tokens[$i + 1].StartsWith('--')) {
+            if (($i + 1) -ge $tokens.Count -or ([string]$tokens[$i + 1]).StartsWith('--')) {
                 throw 'Provide a search term after --name.'
             }
 
-            $filter = $tokens[++$i]
+            $filter = [string]$tokens[++$i]
         }
         else {
             throw "Unknown argument: $($tokens[$i])"
         }
     }
 
-    $distros = @(Get-WslOnlineDistros)
+    $distros = @(Get-WslmOnlineDistro)
 
     if ($filter) {
         $distros = @(
@@ -55,7 +54,7 @@ function Invoke-WslmFind {
 
     Write-Host ''
 
-    Write-WslTable `
+    Write-WslmTable `
         -Rows $sorted `
         -Columns @('Family', 'Name', 'FriendlyName') `
         -Headers @('Family', 'Name', 'Friendly Name') `
